@@ -1,43 +1,46 @@
 import firebase_admin
 from firebase_admin import credentials, db
-import random, time, datetime
+import random
+import time
+from datetime import datetime
 
 cred = credentials.Certificate("firebase-adminsdk.json")
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://console.firebase.google.com/project/biocycle-2a810/database/biocycle-2a810-default-rtdb/data/~2F'  # ganti dengan URL kamu
+    'databaseURL': 'https://<YOUR_PROJECT_ID>.firebaseio.com/'  # ganti sesuai project kamu
 })
 
-ref = db.reference('/sensor')
+ref = db.reference('BioCycle/sensor')
 
 motor_on_time = None
-motor_state = "OFF"
-solenoid_state = "OFF"
+motor_status = "OFF"
+solenoid_valve = "OFF"
 
 while True:
     suhu = round(random.uniform(25, 35), 2)
-    kelembapan = round(random.uniform(40, 70), 2)
-    mq = round(random.uniform(200, 500), 2)
+    kelembapan = round(random.uniform(50, 80), 2)
+    mq = round(random.uniform(100, 400), 2)
 
-    # Logika sederhana motor & solenoid
-    if motor_state == "OFF":
-        motor_state = "ON"
-        motor_on_time = time.time()
+    # Logika hubungan motor AC dan solenoid valve
+    if motor_status == "ON":
+        if motor_on_time and (time.time() - motor_on_time) >= 180:  # 3 menit
+            solenoid_valve = "ON"
+            motor_status = "OFF"
+            motor_on_time = None
     else:
-        if time.time() - motor_on_time >= 180:  # 3 menit
-            motor_state = "OFF"
-            solenoid_state = "ON"
-        else:
-            solenoid_state = "OFF"
+        if random.choice([True, False]):  # 50% kemungkinan nyala lagi
+            motor_status = "ON"
+            solenoid_valve = "OFF"
+            motor_on_time = time.time()
 
     data = {
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "suhu": suhu,
-        "kelembapan": kelembapan,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "temperature": suhu,
+        "humidity": kelembapan,
         "mq": mq,
-        "motor": motor_state,
-        "solenoid": solenoid_state
+        "motor_status": motor_status,
+        "solenoid_valve": solenoid_valve
     }
 
     ref.set(data)
-    print("Data dikirim:", data)
+    print(f"Sent to Firebase: {data}")
     time.sleep(5)
