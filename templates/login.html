@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | BioCycle</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="login-container">
+  <form action="/login_email" method="POST" class="login-box">
+    <h3 class="text-center mb-3">LOGIN</h3>
+
+    {% if success %}
+      <div class="alert alert-success">{{ success }}</div>
+    {% endif %}
+    {% if error %}
+      <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <div class="form-group mb-3">
+      <input type="email" class="form-control" name="email" placeholder="Email" required>
+    </div>
+
+    <div class="form-group mb-3">
+      <input type="password" class="form-control" name="password" placeholder="Password" required>
+    </div>
+
+    <button type="submit" class="btn btn-primary w-100">Login</button>
+
+    <div class="text-center my-3">Or login with</div>
+
+    <button type="button" id="googleLogin" class="btn btn-light border w-100">
+      <img src="https://developers.google.com/identity/images/g-logo.png" width="20" class="me-2">
+      Login with Google
+    </button>
+
+    <div class="text-center mt-3">
+      <small>Belum punya akun? <a href="/register">Daftar di sini</a></small>
+    </div>
+  </form>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
+    authDomain: "biocycle-2a810.firebaseapp.com",
+    projectId: "biocycle-2a810",
+    storageBucket: "biocycle-2a810.firebasestorage.app",
+    messagingSenderId: "171728468091",
+    appId: "1:171728468091:web:97afc1572f200856ec4ade",
+    measurementId: "G-QVNBWV5M2J"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+
+  document.getElementById('googleLogin').addEventListener('click', () => {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    auth.signInWithPopup(provider)
+      .then(async (result) => {
+        const idToken = await result.user.getIdToken();
+        const response = await fetch('/login_google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken })
+        });
+        const data = await response.json();
+        if (data.success) {
+          window.location.href = '/dashboard';
+        } else {
+          alert('Gagal login ke server Flask.');
+        }
+      })
+      .catch((error) => {
+        alert('Gagal login: ' + error.message);
+      });
+  });
+</script>
+
+</body>
+</html>

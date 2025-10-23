@@ -1,0 +1,6 @@
+flask
+firebase-admin
+mysql-connector-python
+requests
+python-dotenv
+google-auth
