@@ -6,7 +6,7 @@ import time
 
 cred = credentials.Certificate("firebase-adminsdk.json")
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://<YOUR_PROJECT_ID>.firebaseio.com/'
+    'databaseURL': 'https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app'
 })
 
 # Koneksi ke MySQL
