@@ -1,18 +1,114 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard | BioCycle</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoring Dashboard | BioCycle</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .card {
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .card h5 {
+      font-weight: 600;
+    }
+    .data-value {
+      font-size: 1.5rem;
+      font-weight: bold;
+    }
+    .logout-btn {
+      position: absolute;
+      right: 100px;
+      top: 40px;
+    }
+  </style>
 </head>
-<body class="bg-light">
-  <div class="container text-center mt-5">
-    <div class="card p-4 shadow-sm">
-      <h3>Welcome to Dashboard</h3>
-      <p>Halo, <strong>{{ user }}</strong> 👋</p>
-      <a href="/logout" class="btn btn-danger mt-3">Logout</a>
+<body>
+  <div class="container mt-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="fw-bold">Monitoring Dashboard</h2>
+      <a href="/logout" class="btn btn-danger logout-btn">Logout</a>
+    </div>
+
+    <div class="row text-center mb-4">
+      <div class="col-md-3 mb-3">
+        <div class="card p-3">
+          <h5>Suhu (°C)</h5>
+          <div class="data-value" id="suhu">--</div>
+        </div>
+      </div>
+      <div class="col-md-3 mb-3">
+        <div class="card p-3">
+          <h5>Kelembapan (%)</h5>
+          <div class="data-value" id="kelembapan">--</div>
+        </div>
+      </div>
+      <div class="col-md-3 mb-3">
+        <div class="card p-3">
+          <h5>Gas (MQ)</h5>
+          <div class="data-value" id="mq">--</div>
+        </div>
+      </div>
+      <div class="col-md-3 mb-3">
+        <div class="card p-3">
+          <h5>Solenoid Valve</h5>
+          <div class="data-value" id="solenoid">--</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-3">
+      <h5 class="text-start mb-3">Riwayat Data</h5>
+      <table class="table table-bordered table-striped text-center">
+        <thead class="table-light">
+          <tr>
+            <th>Waktu</th>
+            <th>Suhu</th>
+            <th>Kelembapan</th>
+            <th>MQ</th>
+            <th>Motor</th>
+            <th>Solenoid</th>
+          </tr>
+        </thead>
+        <tbody id="data-table">
+        </tbody>
+      </table>
     </div>
   </div>
+
+  <script>
+    async function fetchSensorData() {
+      const res = await fetch('/get_sensor_data');
+      const data = await res.json();
+
+      if (data.error) return;
+
+      document.getElementById('suhu').innerText = data.temperature + " °C";
+      document.getElementById('kelembapan').innerText = data.humidity + " %";
+      document.getElementById('mq').innerText = data.mq;
+      document.getElementById('solenoid').innerText = data.solenoid_valve;
+
+      // Masukkan ke tabel
+      const tbody = document.getElementById('data-table');
+      const newRow = `
+        <tr>
+          <td>${data.timestamp}</td>
+          <td>${data.temperature}</td>
+          <td>${data.humidity}</td>
+          <td>${data.mq}</td>
+          <td>${data.motor_status}</td>
+          <td>${data.solenoid_valve}</td>
+        </tr>
+      `;
+      tbody.innerHTML = newRow + tbody.innerHTML; // prepend
+    }
+
+    fetchSensorData();
+    setInterval(fetchSensorData, 5000);
+  </script>
 </body>
 </html>

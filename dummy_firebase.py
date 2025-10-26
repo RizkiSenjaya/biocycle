@@ -6,7 +6,7 @@ from datetime import datetime
 
 cred = credentials.Certificate("firebase-adminsdk.json")
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://<YOUR_PROJECT_ID>.firebaseio.com/'  # ganti sesuai project kamu
+    'databaseURL': 'https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app'  # ganti sesuai project kamu
 })
 
 ref = db.reference('BioCycle/sensor')
