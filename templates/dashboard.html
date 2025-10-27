@@ -13,17 +13,24 @@
     <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
 
     <!-- Sidebar -->
-    <!-- Sidebar -->
     <div class="sidebar" id="sidebar">
-        <h3>BioCycle</h3>
-        <a href="#">Profile</a>
-        <a href="#" class="active">Dashboard</a>
+        <div class="text-center mb-3">
+            <a href="/profile">
+                <img src="{{ user.photo }}" alt="Profile" class="profile-img">
+            </a>
+            <p class="mt-2 mb-0 fw-bold">{{ user.name }}</p>
+            <small>{{ user.email }}</small>
+        </div>
+
+        <hr class="text-light">
+
+        <a href="/dashboard" class="active">Dashboard</a>
+        <a href="/profile">Profile</a>
         <a href="#">Machine Learning</a>
         <a href="#">Export File</a>
         <a href="#">Pengaturan</a>
-        <a href="/logout" class="text-danger">Logout</a>
+        <a href="javascript:void(0)" onclick="logoutUser()" class="text-danger">Logout</a>
     </div>
-
 
     <!-- Konten utama -->
     <div class="content">
@@ -149,5 +156,24 @@
         fetchData();
         setInterval(fetchData, 5000);
     </script>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
+        authDomain: "biocycle-2a810.firebaseapp.com",
+        projectId: "biocycle-2a810",
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+
+    function logoutUser() {
+        auth.signOut().then(() => {
+        window.location.href = "/logout";
+        });
+    }
+    </script>
+
 </body>
 </html>
