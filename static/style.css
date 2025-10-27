@@ -1,5 +1,6 @@
+/* ==== LOGIN PAGE STYLE ==== */
 body {
-  background: linear-gradient(120deg, #2a9df4, #59d2fe);
+  background: linear-gradient(120deg, #1e1e2d, #59d2fe);
   height: 100vh;
   display: flex;
   justify-content: center;
