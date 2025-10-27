@@ -1,49 +1,115 @@
 from flask import Flask, render_template, jsonify, redirect, url_for, request, session
+import requests
 import mysql.connector
 from mysql.connector import pooling
-from datetime import datetime
-import requests  # untuk verifikasi token ke Google
 
 app = Flask(__name__)
 app.secret_key = "biocycle_secret_key"
 
-# Konfigurasi koneksi database
+# Firebase Web API Key
+FIREBASE_API_KEY = "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0"
+
+# Konfigurasi koneksi database untuk sensor
 dbconfig = {
     "user": "root",
     "password": "",
     "host": "localhost",
     "database": "biocycle"
 }
-
 connection_pool = pooling.MySQLConnectionPool(pool_name="mypool", pool_size=5, **dbconfig)
 
-# ==============================================
-# LOGIN ROUTE (GOOGLE)
-# ==============================================
+
+# ========================
+# ROUTES AUTH
+# ========================
+@app.route('/')
+def login_page():
+    return render_template('login.html')
+
+
+@app.route('/register')
+def register_page():
+    return render_template('register.html')
+
+
+# 🔹 REGISTER via Firebase
+@app.route('/register_user', methods=['POST'])
+def register_user():
+    email = request.form['email']
+    password = request.form['password']
+
+    try:
+        # API endpoint Firebase untuk membuat akun email/password
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
+        payload = {"email": email, "password": password, "returnSecureToken": True}
+        response = requests.post(url, json=payload)
+        data = response.json()
+
+        if "error" in data:
+            message = data["error"]["message"]
+            return render_template('register.html', error=f"Gagal daftar: {message}")
+
+        # Jika sukses, arahkan ke halaman login
+        return render_template('login.html', success="Pendaftaran berhasil! Silakan login.")
+
+    except Exception as e:
+        return render_template('register.html', error=f"Terjadi kesalahan: {e}")
+
+
+# 🔹 LOGIN via Firebase
+@app.route('/login_email', methods=['POST'])
+def login_email():
+    email = request.form['email']
+    password = request.form['password']
+
+    try:
+        # API endpoint Firebase untuk login email/password
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}"
+        payload = {"email": email, "password": password, "returnSecureToken": True}
+        response = requests.post(url, json=payload)
+        data = response.json()
+
+        if "error" in data:
+            message = data["error"]["message"]
+            return render_template('login.html', error=f"Gagal login: {message}")
+
+        # Simpan sesi user
+        session['logged_in'] = True
+        session['email'] = data.get('email')
+        session['idToken'] = data.get('idToken')
+        session['photo'] = "/static/default-avatar.png"
+        session['name'] = data.get('email').split('@')[0].capitalize()
+
+        return redirect(url_for('dashboard'))
+
+    except Exception as e:
+        return render_template('login.html', error=f"Terjadi kesalahan: {e}")
+
+
+# 🔹 LOGIN dengan Google
 @app.route('/login_google', methods=['POST'])
 def login_google():
-    """Terima ID Token dari frontend dan verifikasi ke Firebase"""
     try:
         data = request.get_json()
         id_token = data.get('idToken')
 
-        # Verifikasi token ke Google
-        verify_url = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0"
+        verify_url = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={FIREBASE_API_KEY}"
         response = requests.post(verify_url, json={"idToken": id_token})
         user_info = response.json()
 
-        # Jika gagal verifikasi
         if 'users' not in user_info:
             return jsonify({"success": False, "message": "Token tidak valid."}), 401
 
-        # Ambil info user dari Firebase
-        user_email = user_info['users'][0]['email']
-        user_name = user_info['users'][0].get('displayName', 'User')
+        user_data = user_info['users'][0]
+        user_email = user_data['email']
+        user_name = user_data.get('displayName', 'User')
+        user_photo = user_data.get('photoUrl', '/static/default-avatar.png')
 
-        # Simpan sesi login
+        # Simpan ke session
         session['logged_in'] = True
         session['email'] = user_email
         session['name'] = user_name
+        session['photo'] = user_photo
 
         print(f"✅ Login berhasil: {user_email}")
         return jsonify({"success": True, "redirect": "/dashboard"})
@@ -52,45 +118,33 @@ def login_google():
         print("❌ Error login_google:", e)
         return jsonify({"success": False, "message": str(e)}), 500
 
-# ==============================================
-# ROUTES UTAMA
-# ==============================================
-@app.route('/')
-def login_page():
-    return render_template('login.html')
 
+# ========================
+# HALAMAN LAIN
+# ========================
 @app.route('/dashboard')
 def dashboard():
     if not session.get('logged_in'):
         return redirect(url_for('login_page'))
-    return render_template('dashboard.html')
+    return render_template('dashboard.html', user=session)
+
+
+@app.route('/profile')
+def profile():
+    if not session.get('logged_in'):
+        return redirect(url_for('login_page'))
+    return render_template('profile.html', user=session)
+
 
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login_page'))
 
-# ==============================================
+
+# ========================
 # DATA SENSOR
-# ==============================================
-@app.route('/get_latest_data')
-def get_latest_data():
-    try:
-        conn = connection_pool.get_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM sensor_data ORDER BY id DESC LIMIT 1;")
-        data = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        if data:
-            return jsonify(data)
-        else:
-            return jsonify({"message": "No data found"}), 404
-    except Exception as e:
-        print("❌ Error ambil data terbaru:", e)
-        return jsonify({"error": str(e)}), 500
-
-
+# ========================
 @app.route('/get_sensor_history')
 def get_sensor_history():
     try:
