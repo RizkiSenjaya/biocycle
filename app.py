@@ -1,163 +1,142 @@
-from flask import Flask, render_template, jsonify, redirect, url_for, request, session
-import requests
-import mysql.connector
-from mysql.connector import pooling
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+import firebase_admin
+from firebase_admin import credentials, auth, db
+import os
 
 app = Flask(__name__)
-app.secret_key = "biocycle_secret_key"
+app.secret_key = 'your_secret_key'
 
-# Firebase Web API Key
-FIREBASE_API_KEY = "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0"
+# --- Firebase Initialization ---
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase-adminsdk.json")
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://biocycle-2a810-default-rtdb.firebaseio.com/'
+    })
 
-# Konfigurasi koneksi database untuk sensor
-dbconfig = {
-    "user": "root",
-    "password": "",
-    "host": "localhost",
-    "database": "biocycle"
-}
-connection_pool = pooling.MySQLConnectionPool(pool_name="mypool", pool_size=5, **dbconfig)
-
-
-# ========================
-# ROUTES AUTH
-# ========================
+# ---------------- HOME ----------------
 @app.route('/')
-def login_page():
+def home():
+    return redirect(url_for('login'))
+
+
+# ---------------- LOGIN ----------------
+@app.route('/login')
+def login():
     return render_template('login.html')
 
 
-@app.route('/register')
-def register_page():
-    return render_template('register.html')
-
-
-# 🔹 REGISTER via Firebase
-@app.route('/register_user', methods=['POST'])
-def register_user():
-    email = request.form['email']
-    password = request.form['password']
-
-    try:
-        # API endpoint Firebase untuk membuat akun email/password
-        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
-        payload = {"email": email, "password": password, "returnSecureToken": True}
-        response = requests.post(url, json=payload)
-        data = response.json()
-
-        if "error" in data:
-            message = data["error"]["message"]
-            return render_template('register.html', error=f"Gagal daftar: {message}")
-
-        # Jika sukses, arahkan ke halaman login
-        return render_template('login.html', success="Pendaftaran berhasil! Silakan login.")
-
-    except Exception as e:
-        return render_template('register.html', error=f"Terjadi kesalahan: {e}")
-
-
-# 🔹 LOGIN via Firebase
 @app.route('/login_email', methods=['POST'])
 def login_email():
     email = request.form['email']
     password = request.form['password']
 
-    try:
-        # API endpoint Firebase untuk login email/password
-        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}"
-        payload = {"email": email, "password": password, "returnSecureToken": True}
-        response = requests.post(url, json=payload)
-        data = response.json()
+    if not email or not password:
+        return render_template('login.html', error="Email dan password wajib diisi.")
 
-        if "error" in data:
-            message = data["error"]["message"]
-            return render_template('login.html', error=f"Gagal login: {message}")
-
-        # Simpan sesi user
-        session['logged_in'] = True
-        session['email'] = data.get('email')
-        session['idToken'] = data.get('idToken')
-        session['photo'] = "/static/default-avatar.png"
-        session['name'] = data.get('email').split('@')[0].capitalize()
-
-        return redirect(url_for('dashboard'))
-
-    except Exception as e:
-        return render_template('login.html', error=f"Terjadi kesalahan: {e}")
+    # Hanya simulasi — validasi seharusnya dilakukan di sisi Firebase client
+    session['user'] = {'email': email}
+    return redirect(url_for('dashboard'))
 
 
-# 🔹 LOGIN dengan Google
 @app.route('/login_google', methods=['POST'])
 def login_google():
+    """Login via Google (token dikirim dari front-end Firebase)"""
     try:
-        data = request.get_json()
+        data = request.get_json(force=True)
         id_token = data.get('idToken')
 
-        verify_url = f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={FIREBASE_API_KEY}"
-        response = requests.post(verify_url, json={"idToken": id_token})
-        user_info = response.json()
+        decoded_token = auth.verify_id_token(id_token)
+        email = decoded_token.get('email')
+        name = decoded_token.get('name', 'User')
+        uid = decoded_token.get('uid')
 
-        if 'users' not in user_info:
-            return jsonify({"success": False, "message": "Token tidak valid."}), 401
+        # Simpan user ke session
+        session['user'] = {
+            'uid': uid,
+            'email': email,
+            'name': name
+        }
 
-        user_data = user_info['users'][0]
-        user_email = user_data['email']
-        user_name = user_data.get('displayName', 'User')
-        user_photo = user_data.get('photoUrl', '/static/default-avatar.png')
-
-        # Simpan ke session
-        session['logged_in'] = True
-        session['email'] = user_email
-        session['name'] = user_name
-        session['photo'] = user_photo
-
-        print(f"✅ Login berhasil: {user_email}")
-        return jsonify({"success": True, "redirect": "/dashboard"})
-
+        return jsonify({'success': True})
     except Exception as e:
-        print("❌ Error login_google:", e)
-        return jsonify({"success": False, "message": str(e)}), 500
+        print("Error Google login:", e)
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 
-# ========================
-# HALAMAN LAIN
-# ========================
+# ---------------- DASHBOARD ----------------
 @app.route('/dashboard')
 def dashboard():
-    if not session.get('logged_in'):
-        return redirect(url_for('login_page'))
-    return render_template('dashboard.html', user=session)
+    user = session.get('user')
+    if not user:
+        return redirect(url_for('login'))
+    return render_template('dashboard.html', user=user)
 
 
+# Endpoint API yang dipanggil JS dashboard
+@app.route('/get_data', methods=['GET'])
+def get_data():
+    """Mengambil 10 data terakhir dari Realtime Database"""
+    try:
+        ref = db.reference('SensorData')
+        data = ref.order_by_key().limit_to_last(10).get()
+
+        if not data:
+            return jsonify([])
+
+        result = []
+        for key, val in data.items():
+            result.append({
+                'timestamp': val.get('timestamp'),
+                'temperature': val.get('temperature'),
+                'humidity': val.get('humidity'),
+                'fanStatus': val.get('fanStatus'),
+                'gas': val.get('gas'),
+                'solenoid': val.get('solenoid')
+            })
+
+        # Urutkan berdasarkan waktu (data lama ke baru)
+        result.sort(key=lambda x: x.get('timestamp', ''))
+        return jsonify(result)
+    except Exception as e:
+        print("Error get_data:", e)
+        return jsonify([])
+
+
+# ---------------- PROFILE ----------------
 @app.route('/profile')
 def profile():
-    if not session.get('logged_in'):
-        return redirect(url_for('login_page'))
-    return render_template('profile.html', user=session)
+    user = session.get('user')
+    if not user:
+        return redirect(url_for('login'))
+    
+    try:
+        users = [u for u in auth.list_users().iterate_all()]
+        user_data = []
+        for u in users:
+            user_data.append({
+                'uid': u.uid,
+                'email': u.email,
+                'display_name': u.display_name,
+                'email_verified': u.email_verified
+            })
+    except Exception as e:
+        print("Error fetching users:", e)
+        user_data = []
+
+    return render_template('profile.html', user=user, users=user_data)
 
 
+# ---------------- LOGOUT ----------------
 @app.route('/logout')
 def logout():
-    session.clear()
-    return redirect(url_for('login_page'))
+    session.pop('user', None)
+    return redirect(url_for('login'))
 
 
-# ========================
-# DATA SENSOR
-# ========================
-@app.route('/get_sensor_history')
-def get_sensor_history():
-    try:
-        conn = connection_pool.get_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM (SELECT * FROM sensor_data ORDER BY id DESC LIMIT 10) sub ORDER BY id ASC;")
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return jsonify(rows)
-    except Exception as e:
-        print("❌ Error ambil riwayat data:", e)
-        return jsonify({'error': str(e)}), 500
+# ---------------- ERROR HANDLER ----------------
+@app.errorhandler(404)
+def not_found(e):
+    return render_template('404.html'), 404
 
 
 if __name__ == '__main__':
