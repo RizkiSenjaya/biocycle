@@ -6,9 +6,14 @@
   <title>Profile | BioCycle</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='profile.css') }}">
 </head>
 <body>
-  <div class="sidebar">
+  <!-- Tombol Sidebar (Mobile) -->
+  <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
       <div class="text-center mb-3">
           <a href="/profile">
               <img src="{{ user.photo }}" alt="Profile" class="profile-img">
@@ -25,32 +30,95 @@
       <a href="javascript:void(0)" onclick="logoutUser()" class="text-danger">Logout</a>
   </div>
 
+  <!-- Konten utama -->
   <div class="content">
-      <h4>Profil Pengguna</h4>
-      <div class="card p-4 mt-3" style="max-width: 500px;">
-          <div class="text-center">
-              <img src="{{ user.photo }}" alt="Profile" class="profile-img mb-3" style="width: 100px; height: 100px;">
-              <h5>{{ user.name }}</h5>
-              <p>{{ user.email }}</p>
+      <h4 class="mb-4">Profil Pengguna</h4>
+
+      <!-- Card Profil -->
+      <div class="card profile-card mx-auto text-center p-4">
+          <img src="{{ user.photo }}" alt="Profile" class="profile-photo mb-3">
+          <h5 class="fw-bold">{{ user.name }}</h5>
+          <p class="text-muted mb-1">{{ user.email }}</p>
+          <small class="text-secondary">User ID: {{ user.uid }}</small>
+      </div>
+
+      <!-- Tabel Daftar Pengguna Firebase -->
+      <div class="card p-4 mt-5">
+          <h5 class="mb-3">Daftar Pengguna Firebase</h5>
+          <div class="table-responsive">
+              <table class="table table-striped align-middle">
+                  <thead class="table-header">
+                      <tr>
+                          <th>UID</th>
+                          <th>Nama</th>
+                          <th>Email</th>
+                          <th>Dibuat</th>
+                      </tr>
+                  </thead>
+                  <tbody id="userTable">
+                      <tr><td colspan="4" class="text-center">Memuat data pengguna...</td></tr>
+                  </tbody>
+              </table>
           </div>
       </div>
   </div>
 
+  <!-- JavaScript -->
+  <script>
+    function toggleSidebar() {
+        document.getElementById("sidebar").classList.toggle("active");
+    }
+
+    // === Ambil daftar user Firebase Auth ===
+    async function loadUsers() {
+        try {
+            const res = await fetch('/get_all_users');
+            const users = await res.json();
+            const table = document.getElementById('userTable');
+            table.innerHTML = "";
+
+            if (users.length === 0) {
+                table.innerHTML = `<tr><td colspan="4" class="text-center">Tidak ada pengguna terdaftar</td></tr>`;
+                return;
+            }
+
+            users.forEach(u => {
+                table.innerHTML += `
+                    <tr>
+                        <td>${u.uid}</td>
+                        <td>${u.name || '-'}</td>
+                        <td>${u.email || '-'}</td>
+                        <td>${u.created || '-'}</td>
+                    </tr>
+                `;
+            });
+        } catch (err) {
+            console.error("Gagal memuat daftar user:", err);
+            document.getElementById('userTable').innerHTML = `
+                <tr><td colspan="4" class="text-center text-danger">Gagal memuat data pengguna</td></tr>
+            `;
+        }
+    }
+
+    loadUsers();
+  </script>
+
+  <!-- Firebase Auth untuk Logout -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script>
     const firebaseConfig = {
-      apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
-      authDomain: "biocycle-2a810.firebaseapp.com",
-      projectId: "biocycle-2a810",
+        apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
+        authDomain: "biocycle-2a810.firebaseapp.com",
+        projectId: "biocycle-2a810",
     };
     firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
 
     function logoutUser() {
-      auth.signOut().then(() => {
-        window.location.href = "/logout";
-      });
+        auth.signOut().then(() => {
+            window.location.href = "/logout";
+        });
     }
   </script>
 </body>
