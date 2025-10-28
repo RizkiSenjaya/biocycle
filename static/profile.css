@@ -1,54 +1,106 @@
-/* === PROFILE PAGE STYLE === */
+/* ==== PROFILE STYLE ==== */
 
-/* Card Profil */
-.profile-card {
-  max-width: 450px;
-  border-radius: 14px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  background: #fff;
-  transition: all 0.3s ease;
+/* Sidebar */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 240px;
+  background-color: #1e1e2d;
+  color: white;
+  padding-top: 20px;
+  transition: all 0.3s;
 }
 
-.profile-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+.sidebar a {
+  color: white;
+  text-decoration: none;
+  display: block;
+  padding: 12px 20px;
+  margin: 4px 12px;
+  border-radius: 8px;
+  transition: 0.3s;
 }
 
+.sidebar a:hover,
+.sidebar a.active {
+  background-color: #00bcd4;
+  color: white;
+}
+
+/* Tombol Sidebar (Mobile) */
+.toggle-btn {
+  display: none;
+  position: fixed;
+  top: 15px;
+  left: 15px;
+  background-color: #00bcd4;
+  border: none;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  z-index: 1000;
+}
+
+/* Konten Utama */
+.content {
+  margin-left: 260px;
+  padding: 40px;
+  transition: all 0.3s;
+  background-color: #f8f9fa;
+  min-height: 100vh;
+}
+
+/* Kartu Profil */
+.card {
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Foto Profil Bulat */
 .profile-photo {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  object-fit: cover;
   border: 3px solid #00bcd4;
+  object-fit: cover;
   margin: 0 auto;
 }
 
-/* Tabel Daftar Pengguna */
-.table-header {
+/* Foto Sidebar */
+.profile-img {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 2px solid #00bcd4;
+  object-fit: cover;
+}
+
+/* Tabel Pengguna */
+.table th {
   background-color: #00bcd4;
   color: white;
   text-align: center;
 }
 
-.table td,
-.table th {
+.table td {
   text-align: center;
   vertical-align: middle;
 }
 
-.table-striped > tbody > tr:nth-of-type(odd) {
-  background-color: #f8f9fa;
-}
-
 /* Responsif */
 @media (max-width: 768px) {
-  .profile-card {
-    max-width: 90%;
-    padding: 20px;
+  .sidebar {
+    left: -240px;
   }
-
-  .profile-photo {
-    width: 100px;
-    height: 100px;
+  .sidebar.active {
+    left: 0;
+  }
+  .content {
+    margin-left: 0;
+  }
+  .toggle-btn {
+    display: block;
   }
 }
