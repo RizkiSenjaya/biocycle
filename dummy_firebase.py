@@ -6,7 +6,7 @@ from datetime import datetime
 
 cred = credentials.Certificate("firebase-adminsdk.json")
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app'  # ganti sesuai project kamu
+    'databaseURL': 'https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app'
 })
 
 ref = db.reference('BioCycle/sensor')
@@ -14,22 +14,28 @@ ref = db.reference('BioCycle/sensor')
 motor_on_time = None
 motor_status = "OFF"
 solenoid_valve = "OFF"
+PRESSURE_LIMIT = 1.5  # bar
 
 while True:
     suhu = round(random.uniform(25, 35), 2)
     kelembapan = round(random.uniform(50, 80), 2)
     mq = round(random.uniform(100, 400), 2)
+    pressure = round(random.uniform(1.0, 2.5), 2)
 
-    # Logika hubungan motor AC dan solenoid valve
+    # 🔹 Otomatisasi solenoid berdasarkan tekanan
+    if pressure > PRESSURE_LIMIT:
+        solenoid_valve = "ON"
+    else:
+        solenoid_valve = "OFF"
+
+    # 🔹 Logika motor
     if motor_status == "ON":
-        if motor_on_time and (time.time() - motor_on_time) >= 180:  # 3 menit
-            solenoid_valve = "ON"
+        if motor_on_time and (time.time() - motor_on_time) >= 180:
             motor_status = "OFF"
             motor_on_time = None
     else:
-        if random.choice([True, False]):  # 50% kemungkinan nyala lagi
+        if random.choice([True, False]):
             motor_status = "ON"
-            solenoid_valve = "OFF"
             motor_on_time = time.time()
 
     data = {
@@ -37,6 +43,7 @@ while True:
         "temperature": suhu,
         "humidity": kelembapan,
         "mq": mq,
+        "pressure": pressure,
         "motor_status": motor_status,
         "solenoid_valve": solenoid_valve
     }

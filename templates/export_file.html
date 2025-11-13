@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Export File | BioCycle</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+  <!-- Tombol Toggle Sidebar -->
+  <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+      <div class="text-center mb-3">
+          <a href="/profile">
+              <img src="{{ user.photo }}" alt="Profile" class="profile-img">
+          </a>
+          <p class="mt-2 mb-0 fw-bold">{{ user.name }}</p>
+          <small>{{ user.email }}</small>
+      </div>
+
+      <hr class="text-light">
+
+      <a href="/dashboard">Dashboard</a>
+      <a href="/profile">Profile</a>
+      <a href="/machine_learning">Machine Learning</a>
+      <a href="/export_file" class="active">Export File</a>
+      <a href="#">Pengaturan</a>
+      <a href="javascript:void(0)" onclick="logoutUser()" class="text-danger">Logout</a>
+  </div>
+
+  <!-- ✅ TOP BAR -->
+  <div class="topbar">
+      <div class="topbar-left">
+          <h5 class="mb-0 fw-bold text-logo">BioCycle</h5>
+      </div>
+      <div class="topbar-right">
+          <button class="notif-btn" onclick="toggleNotif()">
+              🔔
+              <span class="notif-badge" id="notifCount">0</span>
+          </button>
+          <div class="notif-dropdown" id="notifDropdown">
+              <p><strong>Notifikasi</strong></p>
+              <ul id="notifList">
+                  <li>Tidak ada notifikasi</li>
+              </ul>
+          </div>
+      </div>
+  </div>
+
+  <!-- ✅ Konten Utama -->
+  <div class="content">
+      <h4 class="mb-4">Export Data Sensor</h4>
+
+      <div class="card p-4 mb-4">
+          <h6>📦 Pilihan Export</h6>
+          <p class="text-muted">Anda dapat mengekspor semua data sensor ke format Excel atau PDF sebagai laporan data.</p>
+          <div class="d-flex gap-3">
+              <a href="/export_excel" class="btn btn-success">📗 Export ke Excel</a>
+              <a href="/export_pdf" class="btn btn-danger">📕 Export ke PDF</a>
+          </div>
+      </div>
+
+      <div class="card p-3">
+          <h6>📋 Data Sensor (20 Data Terakhir)</h6>
+          <table class="table table-striped mt-2">
+              <thead>
+                  <tr>
+                      <th>No</th>
+                      <th>Waktu</th>
+                      <th>Suhu (°C)</th>
+                      <th>Kelembapan (%)</th>
+                      <th>Tekanan (bar)</th>
+                      <th>Gas (MQ)</th>
+                      <th>Motor</th>
+                      <th>Solenoid</th>
+                  </tr>
+              </thead>
+              <tbody id="exportTable">
+                  <tr><td colspan="8" class="text-center">Memuat data...</td></tr>
+              </tbody>
+          </table>
+      </div>
+  </div>
+
+  <!-- 🔹 Script Sidebar & Notifikasi Toggle -->
+  <script>
+  function toggleSidebar() {
+      document.getElementById("sidebar").classList.toggle("active");
+  }
+
+  function toggleNotif() {
+      document.getElementById("notifDropdown").classList.toggle("show");
+  }
+
+  // Tutup dropdown notifikasi jika klik di luar tombol 🔔
+  window.onclick = function(event) {
+      if (!event.target.matches('.notif-btn')) {
+          const dropdown = document.getElementById("notifDropdown");
+          if (dropdown.classList.contains('show')) dropdown.classList.remove('show');
+      }
+  };
+  </script>
+
+  <!-- 🔹 Data Fetch dari Flask -->
+  <script>
+  async function fetchExportData() {
+      const response = await fetch('/get_sensor_history');
+      const data = await response.json();
+      const tbody = document.getElementById('exportTable');
+      tbody.innerHTML = "";
+      data.slice().reverse().forEach((row, i) => {
+          tbody.innerHTML += `
+              <tr>
+                  <td>${i + 1}</td>
+                  <td>${row.timestamp}</td>
+                  <td>${row.temperature.toFixed(2)}</td>
+                  <td>${row.humidity.toFixed(2)}</td>
+                  <td>${row.pressure.toFixed(2)}</td>
+                  <td>${row.mq.toFixed(2)}</td>
+                  <td>${row.motor_status}</td>
+                  <td>${row.solenoid_valve}</td>
+              </tr>`;
+      });
+  }
+  fetchExportData();
+  setInterval(fetchExportData, 10000);
+  </script>
+
+  <!-- 🔔 Firebase Notifikasi -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+  <script>
+  const firebaseConfig = {
+      apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
+      authDomain: "biocycle-2a810.firebaseapp.com",
+      databaseURL: "https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app/",
+      projectId: "biocycle-2a810",
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const notifList = document.getElementById("notifList");
+  const notifCount = document.getElementById("notifCount");
+  let lastNotifHash = "";
+  const limits = { temperature: 35, pressure: 2.0, mq: 400 };
+
+  db.ref("BioCycle/sensor").on("value", (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      const { temperature, pressure, mq, timestamp } = data;
+      let notifData = [];
+
+      if (temperature > limits.temperature)
+          notifData.push(`🌡️ Suhu tinggi (${temperature.toFixed(1)}°C) pada ${timestamp}`);
+      if (pressure > limits.pressure)
+          notifData.push(`💨 Tekanan tinggi (${pressure.toFixed(2)} bar) pada ${timestamp}`);
+      if (mq > limits.mq)
+          notifData.push(`⚠️ Gas melebihi batas (${mq.toFixed(0)}) pada ${timestamp}`);
+
+      notifList.innerHTML = notifData.length
+          ? notifData.map(n => `<li>${n}</li>`).join("")
+          : "<li>Tidak ada notifikasi</li>";
+      notifCount.textContent = notifData.length;
+
+      const notifHash = notifData.join("|");
+      if (notifData.length > 0 && notifHash !== lastNotifHash) {
+          lastNotifHash = notifHash;
+          const beep = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+          beep.play().catch(() => console.warn("🔕 Browser blokir autoplay suara"));
+      }
+  });
+  </script>
+</body>
+</html>
