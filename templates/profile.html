@@ -25,13 +25,32 @@
 
         <a href="/dashboard">Dashboard</a>
         <a href="/profile" class="active">Profile</a>
-        <a href="#">Machine Learning</a>
-        <a href="#">Export File</a>
+        <a href="/machine_learning">Machine Learning</a>
+        <a href="/export_file">Export File</a>
         <a href="#">Pengaturan</a>
         <a href="javascript:void(0)" onclick="logoutUser()" class="text-danger">Logout</a>
     </div>
 
-    <!-- Konten Utama -->
+    <!-- ✅ TOP BAR -->
+    <div class="topbar">
+        <div class="topbar-left">
+            <h5 class="mb-0 fw-bold text-logo">BioCycle</h5>
+        </div>
+        <div class="topbar-right">
+            <button class="notif-btn" onclick="toggleNotif()">
+                🔔
+                <span class="notif-badge" id="notifCount">0</span>
+            </button>
+            <div class="notif-dropdown" id="notifDropdown">
+                <p><strong>Notifikasi</strong></p>
+                <ul id="notifList">
+                    <li>Tidak ada notifikasi</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- ✅ Konten Utama -->
     <div class="content">
         <h4 class="mb-4">Profil Pengguna</h4>
 
@@ -68,9 +87,21 @@
         </div>
     </div>
 
+    <!-- 🔧 SCRIPT DASAR -->
     <script>
         function toggleSidebar() {
             document.getElementById("sidebar").classList.toggle("active");
+        }
+
+        function toggleNotif() {
+            document.getElementById("notifDropdown").classList.toggle("show");
+        }
+
+        window.onclick = function(event) {
+            if (!event.target.matches('.notif-btn')) {
+                const dropdown = document.getElementById("notifDropdown");
+                if (dropdown.classList.contains('show')) dropdown.classList.remove('show');
+            }
         }
 
         function logoutUser() {
@@ -80,15 +111,57 @@
         }
     </script>
 
+    <!-- 🔔 FIREBASE CONFIG + NOTIFIKASI REALTIME -->
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
     <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
-            authDomain: "biocycle-2a810.firebaseapp.com",
-            projectId: "biocycle-2a810",
-        };
-        firebase.initializeApp(firebaseConfig);
+    const firebaseConfig = {
+        apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
+        authDomain: "biocycle-2a810.firebaseapp.com",
+        databaseURL: "https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app/",
+        projectId: "biocycle-2a810",
+    };
+    firebase.initializeApp(firebaseConfig);
+
+    const db = firebase.database();
+    const notifList = document.getElementById("notifList");
+    const notifCount = document.getElementById("notifCount");
+    let lastNotifHash = "";
+
+    // ⚙️ Batas ambang sensor
+    const limits = {
+        temperature: 35,
+        pressure: 2.0,
+        mq: 400
+    };
+
+    // 🔔 Realtime listener
+    db.ref("BioCycle/sensor").on("value", (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        const { temperature, pressure, mq, timestamp } = data;
+        let notifData = [];
+
+        if (temperature > limits.temperature) notifData.push(`🌡️ Suhu tinggi (${temperature.toFixed(1)}°C) pada ${timestamp}`);
+        if (pressure > limits.pressure) notifData.push(`💨 Tekanan tinggi (${pressure.toFixed(2)} bar) pada ${timestamp}`);
+        if (mq > limits.mq) notifData.push(`⚠️ Gas melebihi batas (${mq.toFixed(0)}) pada ${timestamp}`);
+
+        notifList.innerHTML = notifData.length
+            ? notifData.map(n => `<li>${n}</li>`).join("")
+            : "<li>Tidak ada notifikasi</li>";
+        notifCount.textContent = notifData.length;
+
+        // 🔊 Bunyi peringatan
+        const notifHash = notifData.join("|");
+        if (notifData.length > 0 && notifHash !== lastNotifHash) {
+            lastNotifHash = notifHash;
+            const beep = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+            beep.play();
+        }
+    });
     </script>
 </body>
 </html>
