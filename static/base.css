@@ -1,0 +1,182 @@
+/* ================================
+   LAYOUT DASAR
+================================ */
+body {
+    margin: 0;
+    background: #f6f8fa;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Konten */
+.content {
+    margin-left: 240px;
+    padding: 95px 40px 30px !important;
+}
+
+/* ================================
+   SIDEBAR PREMIUM
+================================ */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 240px;
+    background: linear-gradient(180deg, #0b4f3b, #063429);
+    padding: 20px 10px;
+    color: white;
+    transition: 0.3s;
+}
+
+/* FOTO PROFIL PREMIUM */
+.profile-photo {
+    width: 90px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 50%; 
+    border: 3px solid #0fc291;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+    display: block;
+    margin: 0 auto 10px auto;
+}
+
+/* Nama & Email */
+.sidebar .profile-name {
+    font-size: 15px;
+    font-weight: bold;
+    color: #ffffff;
+    text-align: center;
+}
+
+.sidebar .profile-email {
+    font-size: 12px;
+    color: #d6d6d6;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* Menu */
+.sidebar a {
+    display: block;
+    padding: 12px;
+    color: #eaeaea;
+    text-decoration: none;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 14px;
+    transition: 0.2s;
+}
+
+.sidebar a:hover,
+.sidebar a.active {
+    background: #0fc291;
+    color: #063429;
+    font-weight: bold;
+}
+
+/* ================================
+   TOPBAR PREMIUM
+================================ */
+.topbar {
+    margin-left: 240px;
+    height: 70px;
+    background: linear-gradient(90deg, #0b4f3b, #0fc291);
+    padding: 12px 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: fixed;
+    width: calc(100% - 240px);
+    z-index: 1000;
+    color: white;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+    border-bottom: none;
+}
+
+/* Ikon notifikasi */
+.notif-btn {
+    background: none;
+    border: none;
+    font-size: 22px;
+    position: relative;
+    color: white;
+}
+
+.notif-badge {
+    background: red;
+    color: white;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 50%;
+    position: absolute;
+    top: -5px;
+    right: -8px;
+}
+
+/* ================================
+   KARTU
+================================ */
+.card {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+    background: white;
+}
+
+.data-value {
+    font-size: 20px;
+    font-weight: bold;
+    color: #0b4f3b;
+}
+
+/* ================================
+   SECTION HEADER
+================================ */
+.section-header {
+    background: #ffffff;
+    border-left: 5px solid #0fc291;
+    padding: 12px 18px;
+    margin: 30px 0 12px 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #0b4f3b;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    text-align: center;
+}
+
+/* ================================
+   TABEL PREMIUM
+================================ */
+.table thead th {
+    background: linear-gradient(90deg, #0b8a63, #0fc291);
+    color: white;
+    font-weight: bold;
+    text-align: center;
+    padding: 12px;
+    border: none;
+}
+
+.table {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+.table tbody tr:nth-child(even) {
+    background: #f1f1f1;
+}
+
+.table tbody tr td {
+    padding: 12px;
+    vertical-align: middle;
+}
+
+/* ================================
+   MOBILE RESPONSIVE
+================================ */
+@media (max-width: 768px) {
+    .sidebar { left: -260px; }
+    .sidebar.active { left: 0; }
+    .topbar { margin-left: 0; width: 100%; }
+    .content { margin-left: 0; padding: 90px 20px; }
+}

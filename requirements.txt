@@ -4,3 +4,6 @@ mysql-connector-python
 requests
 python-dotenv
 google-auth
+numpy
+pandas
+fpdf

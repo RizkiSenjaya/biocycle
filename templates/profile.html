@@ -1,167 +1,59 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profil Pengguna | BioCycle</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='profile.css') }}">
-</head>
-<body>
-    <!-- Tombol Toggle Sidebar (Mobile) -->
-    <button class="toggle-btn" onclick="toggleSidebar()">☰</button>
+{% extends "base.html" %}
+{% set active = "profile" %}
+{% block title %}Profil Pengguna | BioCycle{% endblock %}
 
-    <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="text-center mb-3">
-            <a href="/profile">
-                <img src="{{ user.photo }}" alt="Profile" class="profile-img">
-            </a>
-            <p class="mt-2 mb-0 fw-bold">{{ user.name }}</p>
-            <small>{{ user.email }}</small>
-        </div>
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='profile.css') }}">
+{% endblock %}
 
-        <hr class="text-light">
+{% block content %}
 
-        <a href="/dashboard">Dashboard</a>
-        <a href="/profile" class="active">Profile</a>
-        <a href="/machine_learning">Machine Learning</a>
-        <a href="/export_file">Export File</a>
-        <a href="#">Pengaturan</a>
-        <a href="javascript:void(0)" onclick="logoutUser()" class="text-danger">Logout</a>
-    </div>
+<h3 class="mb-4 fw-bold">Profil Pengguna</h3>
 
-    <!-- ✅ TOP BAR -->
-    <div class="topbar">
-        <div class="topbar-left">
-            <h5 class="mb-0 fw-bold text-logo">BioCycle</h5>
-        </div>
-        <div class="topbar-right">
-            <button class="notif-btn" onclick="toggleNotif()">
-                🔔
-                <span class="notif-badge" id="notifCount">0</span>
-            </button>
-            <div class="notif-dropdown" id="notifDropdown">
-                <p><strong>Notifikasi</strong></p>
-                <ul id="notifList">
-                    <li>Tidak ada notifikasi</li>
-                </ul>
-            </div>
-        </div>
-    </div>
+<!-- ================================
+      KARTU PROFIL UTAMA
+================================ -->
+<div class="card profile-card-container mb-4 shadow-sm">
+    <img src="{{ user.photo }}" 
+         alt="Foto Profil" 
+         class="profile-photo mb-3">
 
-    <!-- ✅ Konten Utama -->
-    <div class="content">
-        <h4 class="mb-4">Profil Pengguna</h4>
+    <h4 class="fw-bold">{{ user.name }}</h4>
+    <p class="text-muted mb-1">{{ user.email }}</p>
 
-        <!-- Kartu Profil -->
-        <div class="card p-4 mb-4 text-center mx-auto" style="max-width: 450px;">
-            <img src="{{ user.photo }}" alt="Profile Picture" class="profile-photo mb-3">
-            <h5 class="fw-bold">{{ user.name }}</h5>
-            <p class="text-muted mb-2">Pengguna Terdaftar</p>
-        </div>
+    <span class="badge bg-success px-3 py-2 mt-2">
+        Pengguna Terdaftar
+    </span>
+</div>
 
-        <!-- Tabel Daftar Pengguna -->
-        <div class="card p-3">
-            <h6>Daftar Pengguna</h6>
-            <table class="table table-striped mt-2">
-                <thead>
-                    <tr>
-                        <th>Nama</th>
-                        <th>Email</th>
-                        <th>UID</th>
-                        <th>Dibuat Pada</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for user in users %}
-                    <tr>
-                        <td>{{ user.name }}</td>
-                        <td>{{ user.email }}</td>
-                        <td>{{ user.uid }}</td>
-                        <td>{{ user.created_at }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+<!-- ================================
+      TABEL DAFTAR PENGGUNA
+================================ -->
+<div class="card p-3 shadow-sm profile-table-card">
 
-    <!-- 🔧 SCRIPT DASAR -->
-    <script>
-        function toggleSidebar() {
-            document.getElementById("sidebar").classList.toggle("active");
-        }
+    <h5 class="profile-table-title">📋 Daftar Pengguna</h5>
 
-        function toggleNotif() {
-            document.getElementById("notifDropdown").classList.toggle("show");
-        }
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Nama</th>
+                <th>Email</th>
+                <th>UID</th>
+                <th>Dibuat Pada</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr>
+                <td>{{ u.name }}</td>
+                <td>{{ u.email }}</td>
+                <td>{{ u.uid }}</td>
+                <td>{{ u.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 
-        window.onclick = function(event) {
-            if (!event.target.matches('.notif-btn')) {
-                const dropdown = document.getElementById("notifDropdown");
-                if (dropdown.classList.contains('show')) dropdown.classList.remove('show');
-            }
-        }
+</div>
 
-        function logoutUser() {
-            firebase.auth().signOut().then(() => {
-                window.location.href = "/logout";
-            });
-        }
-    </script>
-
-    <!-- 🔔 FIREBASE CONFIG + NOTIFIKASI REALTIME -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-
-    <script>
-    const firebaseConfig = {
-        apiKey: "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0",
-        authDomain: "biocycle-2a810.firebaseapp.com",
-        databaseURL: "https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app/",
-        projectId: "biocycle-2a810",
-    };
-    firebase.initializeApp(firebaseConfig);
-
-    const db = firebase.database();
-    const notifList = document.getElementById("notifList");
-    const notifCount = document.getElementById("notifCount");
-    let lastNotifHash = "";
-
-    // ⚙️ Batas ambang sensor
-    const limits = {
-        temperature: 35,
-        pressure: 2.0,
-        mq: 400
-    };
-
-    // 🔔 Realtime listener
-    db.ref("BioCycle/sensor").on("value", (snapshot) => {
-        const data = snapshot.val();
-        if (!data) return;
-
-        const { temperature, pressure, mq, timestamp } = data;
-        let notifData = [];
-
-        if (temperature > limits.temperature) notifData.push(`🌡️ Suhu tinggi (${temperature.toFixed(1)}°C) pada ${timestamp}`);
-        if (pressure > limits.pressure) notifData.push(`💨 Tekanan tinggi (${pressure.toFixed(2)} bar) pada ${timestamp}`);
-        if (mq > limits.mq) notifData.push(`⚠️ Gas melebihi batas (${mq.toFixed(0)}) pada ${timestamp}`);
-
-        notifList.innerHTML = notifData.length
-            ? notifData.map(n => `<li>${n}</li>`).join("")
-            : "<li>Tidak ada notifikasi</li>";
-        notifCount.textContent = notifData.length;
-
-        // 🔊 Bunyi peringatan
-        const notifHash = notifData.join("|");
-        if (notifData.length > 0 && notifHash !== lastNotifHash) {
-            lastNotifHash = notifHash;
-            const beep = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-            beep.play();
-        }
-    });
-    </script>
-</body>
-</html>
+{% endblock %}
