@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify, redirect, url_for, request, session, send_file
-from firebase_admin import credentials, auth
+from firebase_admin import credentials, auth, db
 import firebase_admin
 import requests
 import mysql.connector
@@ -10,8 +10,28 @@ import pandas as pd
 from fpdf import FPDF
 import io
 
+# CORS support (optional - install dengan: pip install flask-cors)
+try:
+    from flask_cors import CORS
+    CORS_AVAILABLE = True
+except ImportError:
+    CORS_AVAILABLE = False
+    print("⚠️  flask-cors tidak terinstall. Install dengan: pip install flask-cors")
+
 app = Flask(__name__)
 app.secret_key = "biocycle_secret_key"
+
+# Enable CORS untuk mengatasi masalah koneksi frontend-backend
+if CORS_AVAILABLE:
+    CORS(app)
+else:
+    # Manual CORS headers jika flask-cors tidak tersedia
+    @app.after_request
+    def after_request(response):
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return response
 
 # ========================
 # KONFIGURASI FIREBASE
@@ -20,7 +40,10 @@ firebase_cred_path = os.path.join(os.getcwd(), "firebase-adminsdk.json")
 
 if not firebase_admin._apps:
     cred = credentials.Certificate(firebase_cred_path)
-    firebase_admin.initialize_app(cred)
+    # Inisialisasi dengan databaseURL untuk Realtime Database
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://biocycle-2a810-default-rtdb.asia-southeast1.firebasedatabase.app'
+    })
 
 FIREBASE_API_KEY = "AIzaSyB393qWoErLcFOhTd7MMpl_93iVUKynIF0"
 
@@ -34,6 +57,66 @@ dbconfig = {
     "database": "biocycle"
 }
 connection_pool = pooling.MySQLConnectionPool(pool_name="mypool", pool_size=5, **dbconfig)
+
+
+# ========================
+# HELPER FUNCTIONS - RBAC
+# ========================
+def get_user_role(email):
+    """Mengambil role user dari database"""
+    try:
+        conn = connection_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT role, status FROM users WHERE email = %s", (email,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if result:
+            return result.get('role'), result.get('status')
+        return None, None
+    except Exception as e:
+        print(f"❌ Error get user role: {e}")
+        return None, None
+
+
+def require_login(f):
+    """Decorator untuk memastikan user sudah login"""
+    def wrapper(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login_page'))
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
+
+
+def require_admin(f):
+    """Decorator untuk memastikan user adalah admin"""
+    def wrapper(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login_page'))
+        user_role, user_status = get_user_role(session.get('email'))
+        if user_role != 'admin' or user_status != 'approved':
+            return render_template('error.html', 
+                                 error="Akses Ditolak", 
+                                 message="Hanya Admin yang dapat mengakses halaman ini."), 403
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
+
+
+def require_approved(f):
+    """Decorator untuk memastikan user sudah approved"""
+    def wrapper(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login_page'))
+        user_role, user_status = get_user_role(session.get('email'))
+        if user_status != 'approved':
+            return render_template('error.html',
+                                 error="Akun Belum Disetujui",
+                                 message="Akun Anda masih menunggu persetujuan dari Admin."), 403
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
 
 
 # ========================
@@ -54,6 +137,8 @@ def register_page():
 def register_user():
     email = request.form['email']
     password = request.form['password']
+    role = request.form.get('role', 'peternak')  # Default peternak
+    
     try:
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
         payload = {"email": email, "password": password, "returnSecureToken": True}
@@ -61,7 +146,34 @@ def register_user():
         data = response.json()
         if "error" in data:
             return render_template('register.html', error=f"Gagal daftar: {data['error']['message']}")
-        return render_template('login.html', success="Pendaftaran berhasil! Silakan login.")
+        
+        # Simpan ke database MySQL dengan status 'approved' langsung
+        uid = data.get('localId')
+        try:
+            conn = connection_pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO users (uid, email, name, role, status) 
+                VALUES (%s, %s, %s, %s, 'approved')
+            """, (uid, email, email.split('@')[0].capitalize(), role))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            print(f"✅ User {email} terdaftar sebagai {role} dengan status approved")
+        except mysql.connector.IntegrityError:
+            # User sudah ada, update role dan status
+            conn = connection_pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE users SET role = %s, status = 'approved' WHERE email = %s
+            """, (role, email))
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as db_error:
+            print(f"⚠️ Error simpan ke database: {db_error}")
+        
+        return render_template('login.html', success="Pendaftaran berhasil! Silakan login untuk masuk ke dashboard.")
     except Exception as e:
         return render_template('register.html', error=f"Terjadi kesalahan: {e}")
 
@@ -78,13 +190,43 @@ def login_email():
         data = response.json()
         if "error" in data:
             return render_template('login.html', error=f"Gagal login: {data['error']['message']}")
+        
+        # Ambil role dan status dari database
+        user_role, user_status = get_user_role(email)
+        
+        # Jika user belum ada di database, buat sebagai peternak dengan status approved
+        if user_role is None:
+            try:
+                conn = connection_pool.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO users (uid, email, name, role, status) 
+                    VALUES (%s, %s, %s, 'peternak', 'approved')
+                """, (data.get('localId'), email, email.split('@')[0].capitalize()))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                user_role, user_status = 'peternak', 'approved'
+            except Exception as db_error:
+                print(f"⚠️ Error simpan user ke database: {db_error}")
+                user_role, user_status = 'peternak', 'approved'
+        
         session['logged_in'] = True
         session['email'] = data.get('email')
         session['idToken'] = data.get('idToken')
         session['photo'] = "/static/default-avatar.png"
         session['name'] = data.get('email').split('@')[0].capitalize()
+        session['role'] = user_role
+        session['status'] = user_status
+        
+        # Semua user langsung masuk ke dashboard tanpa perlu approval
+        print(f"✅ Login berhasil: {email} ({user_role})")
         return redirect(url_for('dashboard'))
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error koneksi Firebase: {e}")
+        return render_template('login.html', error="Gagal koneksi ke server Firebase. Pastikan koneksi internet aktif.")
     except Exception as e:
+        print(f"❌ Error login: {e}")
         return render_template('login.html', error=f"Terjadi kesalahan: {e}")
 
 
@@ -105,33 +247,91 @@ def login_google():
         user_email = user_data.get('email')
         user_name = user_data.get('displayName', user_email.split('@')[0] if user_email else 'User')
         user_photo = user_data.get('photoUrl', '/static/default-avatar.png')
+        user_uid = user_data.get('localId')
 
+        # Ambil role dan status dari database
+        user_role, user_status = get_user_role(user_email)
+        
+        # Jika user belum ada di database, buat akun baru dengan role sesuai aturan
+        if user_role is None:
+            # Tentukan role berdasarkan email
+            # Jika email = superadmin@gmail.com → role = 'admin'
+            # Semua email lainnya → role = 'peternak'
+            if user_email and user_email.lower() == 'superadmin@gmail.com':
+                assigned_role = 'admin'
+            else:
+                assigned_role = 'peternak'
+            
+            try:
+                conn = connection_pool.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO users (uid, email, name, role, status) 
+                    VALUES (%s, %s, %s, %s, 'approved')
+                """, (user_uid, user_email, user_name, assigned_role))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                user_role, user_status = assigned_role, 'approved'
+                print(f"✅ User baru dibuat: {user_email} dengan role {assigned_role}")
+            except Exception as db_error:
+                print(f"⚠️ Error simpan user ke database: {db_error}")
+                # Fallback: tetap gunakan role yang sudah ditentukan
+                user_role, user_status = assigned_role, 'approved'
+        else:
+            # User sudah ada, gunakan role yang sudah ada di database
+            # Pastikan status selalu 'approved' untuk menghindari error login
+            if user_status != 'approved':
+                try:
+                    conn = connection_pool.get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE users SET status = 'approved' WHERE email = %s", (user_email,))
+                    conn.commit()
+                    cursor.close()
+                    conn.close()
+                    user_status = 'approved'
+                    print(f"✅ Status user {user_email} diupdate menjadi 'approved'")
+                except Exception as db_error:
+                    print(f"⚠️ Error update status user: {db_error}")
+                    # Tetap set status ke approved untuk session
+                    user_status = 'approved'
+
+        # Set session dengan role dan status yang benar (sebelum mengirim response)
         session['logged_in'] = True
         session['email'] = user_email
         session['name'] = user_name
         session['photo'] = user_photo
+        session['role'] = user_role
+        session['status'] = user_status
 
-        print(f"✅ Login berhasil: {user_email}")
-        return jsonify({"success": True, "redirect": "/dashboard"})
+        # Semua user langsung masuk ke dashboard tanpa perlu approval
+        print(f"✅ Login berhasil: {user_email} (role: {user_role}, status: {user_status})")
+        return jsonify({
+            "success": True, 
+            "redirect": "/dashboard",
+            "role": user_role,
+            "status": user_status
+        })
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error koneksi Firebase (Google login): {e}")
+        return jsonify({"success": False, "message": "Gagal koneksi ke server Firebase. Pastikan koneksi internet aktif."}), 500
     except Exception as e:
-        print("❌ Error login_google:", e)
-        return jsonify({"success": False, "message": str(e)}), 500
+        print(f"❌ Error login_google: {e}")
+        return jsonify({"success": False, "message": f"Terjadi kesalahan pada server: {str(e)}"}), 500
 
 
 # ========================
 # HALAMAN DASHBOARD, PROFILE, MACHINE LEARNING, EXPORT
 # ========================
 @app.route('/dashboard')
+@require_login
 def dashboard():
-    if not session.get('logged_in'):
-        return redirect(url_for('login_page'))
     return render_template('dashboard.html', user=session)
 
 
 @app.route('/profile')
+@require_login
 def profile():
-    if not session.get('logged_in'):
-        return redirect(url_for('login_page'))
 
     users = []
     try:
@@ -153,17 +353,40 @@ def profile():
 
 
 @app.route('/machine_learning')
+@require_login
 def machine_learning():
-    if not session.get('logged_in'):
-        return redirect(url_for('login_page'))
     return render_template('machine_learning.html', user=session)
 
 
+@app.route('/mesin_analisis')
+@require_login
+def mesin_analisis():
+    return render_template('mesin_analisis.html', user=session)
+
+
+@app.route('/kontrol_alat')
+@require_login
+@require_admin
+def kontrol_alat():
+    return render_template('kontrol_alat.html', user=session)
+
+
+@app.route('/edukasi')
+@require_login
+def edukasi():
+    return render_template('edukasi.html', user=session)
+
+
 @app.route('/export_file')
+@require_login
 def export_file():
-    if not session.get('logged_in'):
-        return redirect(url_for('login_page'))
     return render_template('export_file.html', user=session)
+
+
+@app.route('/stok')
+@require_login
+def stok():
+    return render_template('stok.html', user=session)
 
 
 # ========================
@@ -179,6 +402,7 @@ def logout():
 # DATA SENSOR API
 # ========================
 @app.route('/get_sensor_history')
+@require_login
 def get_sensor_history():
     try:
         conn = connection_pool.get_connection()
@@ -194,6 +418,7 @@ def get_sensor_history():
 
 
 @app.route('/get_ml_data')
+@require_login
 def get_ml_data():
     try:
         conn = connection_pool.get_connection()
@@ -222,6 +447,7 @@ def get_ml_data():
 # EXPORT DATA SENSOR (EXCEL & PDF)
 # ========================
 @app.route('/export_excel')
+@require_login
 def export_excel():
     try:
         conn = connection_pool.get_connection()
@@ -243,6 +469,7 @@ def export_excel():
 
 
 @app.route('/export_pdf')
+@require_login
 def export_pdf():
     try:
         conn = connection_pool.get_connection()
@@ -293,27 +520,322 @@ def export_pdf():
 
 
 # ========================
+# ADMIN ROUTES (HANYA UNTUK ADMIN)
+# ========================
+@app.route('/admin')
+@require_login
+@require_admin
+def admin_dashboard():
+    try:
+        conn = connection_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
+        users = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return render_template('admin.html', user=session, users=users)
+    except Exception as e:
+        print(f"❌ Error admin dashboard: {e}")
+        return render_template('error.html', error="Error", message=str(e)), 500
+
+
+@app.route('/admin/approve_user', methods=['POST'])
+@require_login
+@require_admin
+def approve_user():
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        action = data.get('action')  # 'approve' or 'reject'
+        
+        if action not in ['approve', 'reject']:
+            return jsonify({'success': False, 'message': 'Action tidak valid'}), 400
+        
+        status = 'approved' if action == 'approve' else 'rejected'
+        
+        conn = connection_pool.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET status = %s WHERE id = %s", (status, user_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': f'User berhasil di{action}'})
+    except Exception as e:
+        print(f"❌ Error approve user: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/admin/update_role', methods=['POST'])
+@require_login
+@require_admin
+def update_role():
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        new_role = data.get('role')
+        
+        if new_role not in ['admin', 'peternak']:
+            return jsonify({'success': False, 'message': 'Role tidak valid'}), 400
+        
+        conn = connection_pool.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET role = %s WHERE id = %s", (new_role, user_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': f'Role user berhasil diubah menjadi {new_role}'})
+    except Exception as e:
+        print(f"❌ Error update role: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/admin/create_user', methods=['POST'])
+@require_login
+@require_admin
+def create_user():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
+        name = data.get('name')
+        role = data.get('role', 'peternak')
+        
+        if not email or not password or not name:
+            return jsonify({'success': False, 'message': 'Data tidak lengkap'}), 400
+        
+        # Buat user di Firebase
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
+        payload = {"email": email, "password": password, "returnSecureToken": True}
+        response = requests.post(url, json=payload)
+        firebase_data = response.json()
+        
+        if "error" in firebase_data:
+            return jsonify({'success': False, 'message': firebase_data['error']['message']}), 400
+        
+        uid = firebase_data.get('localId')
+        
+        # Simpan ke database
+        conn = connection_pool.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO users (uid, email, name, role, status) 
+            VALUES (%s, %s, %s, %s, 'approved')
+        """, (uid, email, name, role))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'User berhasil dibuat'})
+    except Exception as e:
+        print(f"❌ Error create user: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/admin/laporan')
+@require_login
+@require_admin
+def admin_laporan():
+    return render_template('admin_laporan.html', user=session)
+
+
+# ========================
 # AMBIL SEMUA USER FIREBASE
 # ========================
 @app.route('/get_all_users')
+@require_login
 def get_all_users():
-    if not session.get('logged_in'):
-        return jsonify([]), 401
     try:
-        users = []
-        for u in auth.list_users().iterate_all():
-            ts = getattr(u.user_metadata, "creation_timestamp", None)
-            created_str = datetime.datetime.fromtimestamp(int(ts) / 1000).isoformat() if ts else None
-            users.append({
-                'uid': u.uid,
-                'email': u.email,
-                'name': u.display_name or u.email.split('@')[0],
-                'created': created_str
-            })
+        conn = connection_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
+        users = cursor.fetchall()
+        cursor.close()
+        conn.close()
         return jsonify(users)
     except Exception as e:
         print("❌ Error ambil user (API):", e)
         return jsonify([]), 500
+
+
+# ========================
+# KONTROL ALAT (SOLENOID & MOTOR)
+# ========================
+
+# Endpoint terpadu untuk kontrol alat (sesuai struktur Firebase /BioCycle/sensor/)
+@app.route('/control', methods=['POST'])
+@require_login
+def control_device():
+    """
+    Endpoint terpadu untuk mengontrol motor_status dan solenoid_valve
+    Menerima: { "device_id": "motor_status" atau "solenoid_valve", "status": "ON" atau "OFF" }
+    Menulis ke: /BioCycle/sensor/[device_id]
+    """
+    try:
+        data = request.get_json()
+        device_id = data.get('device_id')
+        status = data.get('status')
+        
+        # Validasi input
+        if not device_id or not status:
+            return jsonify({'success': False, 'message': 'Parameter device_id dan status diperlukan'}), 400
+        
+        if device_id not in ['motor_status', 'solenoid_valve']:
+            return jsonify({'success': False, 'message': 'Device ID tidak valid. Harus motor_status atau solenoid_valve'}), 400
+        
+        if status not in ['ON', 'OFF']:
+            return jsonify({'success': False, 'message': 'Status tidak valid. Harus ON atau OFF'}), 400
+        
+        # Update data di Firebase Realtime Database pada path /BioCycle/sensor/
+        sensor_ref = db.reference('/BioCycle/sensor')
+        updates = {
+            device_id: status,
+            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        sensor_ref.update(updates)
+        
+        # Tandai sebagai kontrol manual di /BioCycle/control
+        control_ref = db.reference(f'BioCycle/control/{device_id}')
+        control_ref.set({
+            'status': status,
+            'manual': True,  # Tandai sebagai kontrol manual
+            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
+        
+        print(f"✅ {device_id} berhasil diubah menjadi {status} (MANUAL)")
+        return jsonify({
+            'success': True, 
+            'message': f'{device_id} berhasil diubah menjadi {status}.'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error kontrol device: {e}")
+        return jsonify({'success': False, 'message': f'Terjadi kesalahan pada server saat mengontrol alat: {str(e)}'}), 500
+
+
+@app.route('/control_solenoid', methods=['POST'])
+@require_login
+def control_solenoid():
+    """
+    Endpoint untuk kontrol solenoid valve (backward compatibility)
+    Menulis ke /BioCycle/sensor/solenoid_valve
+    """
+    try:
+        data = request.get_json()
+        solenoid_id = data.get('solenoid')
+        status = data.get('status')
+        
+        if not solenoid_id or not status:
+            return jsonify({'success': False, 'message': 'Parameter tidak lengkap'}), 400
+        
+        # Update ke Firebase pada path /BioCycle/sensor/solenoid_valve
+        sensor_ref = db.reference('/BioCycle/sensor')
+        updates = {
+            'solenoid_valve': status,
+            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        sensor_ref.update(updates)
+        
+        print(f"✅ Solenoid {solenoid_id} diubah menjadi {status}")
+        return jsonify({'success': True, 'message': f'Solenoid {solenoid_id} berhasil diubah'})
+        
+    except Exception as e:
+        print(f"❌ Error kontrol solenoid: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/control_motor', methods=['POST'])
+@require_login
+def control_motor():
+    """
+    Endpoint untuk kontrol motor (backward compatibility)
+    Menulis ke /BioCycle/sensor/motor_status
+    """
+    try:
+        data = request.get_json()
+        action = data.get('action')
+        speed = data.get('speed')
+        duration = data.get('duration')
+        
+        if action not in ['start', 'stop']:
+            return jsonify({'success': False, 'message': 'Action tidak valid'}), 400
+        
+        # Update ke Firebase pada path /BioCycle/sensor/motor_status
+        sensor_ref = db.reference('/BioCycle/sensor')
+        motor_status = 'ON' if action == 'start' else 'OFF'
+        
+        updates = {
+            'motor_status': motor_status,
+            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        if action == 'start':
+            if not speed or not duration:
+                return jsonify({'success': False, 'message': 'Speed dan duration diperlukan untuk start'}), 400
+            # Simpan speed dan duration di control jika diperlukan
+            control_ref = db.reference('BioCycle/control/motor')
+            control_ref.set({
+                'speed': float(speed),
+                'duration': float(duration),
+                'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
+        
+        sensor_ref.update(updates)
+        
+        print(f"✅ Motor {action} - Status: {motor_status}")
+        return jsonify({'success': True, 'message': f'Motor berhasil di{action}'})
+        
+    except Exception as e:
+        print(f"❌ Error kontrol motor: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/get_control_status')
+@require_login
+def get_control_status():
+    """
+    Mengambil status kontrol dari Firebase
+    Membaca dari /BioCycle/sensor/ untuk motor_status dan solenoid_valve
+    """
+    try:
+        # Baca dari path sensor
+        sensor_ref = db.reference('/BioCycle/sensor')
+        sensor_data = sensor_ref.get()
+        
+        # Ambil status motor dan solenoid dari sensor
+        motor_status = sensor_data.get('motor_status', 'OFF') if sensor_data else 'OFF'
+        solenoid_valve = sensor_data.get('solenoid_valve', 'OFF') if sensor_data else 'OFF'
+        
+        # Baca detail motor dari control jika ada
+        control_motor_ref = db.reference('BioCycle/control/motor')
+        motor_control_data = control_motor_ref.get()
+        
+        motor = {
+            'status': motor_status,
+            'speed': motor_control_data.get('speed', 0) if motor_control_data else 0,
+            'duration': motor_control_data.get('duration', 0) if motor_control_data else 0
+        }
+        
+        # Untuk backward compatibility, simulasikan solenoid A, B, C, D
+        # (dalam implementasi nyata, Anda mungkin perlu mapping yang berbeda)
+        solenoids = {
+            'solenoid_A': solenoid_valve,
+            'solenoid_B': solenoid_valve,
+            'solenoid_C': solenoid_valve,
+            'solenoid_D': solenoid_valve
+        }
+        
+        return jsonify({
+            'success': True,
+            'solenoids': solenoids,
+            'motor': motor
+        })
+        
+    except Exception as e:
+        print(f"❌ Error get control status: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ========================
