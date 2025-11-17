@@ -352,16 +352,12 @@ def profile():
     return render_template('profile.html', user=session, users=users)
 
 
-@app.route('/machine_learning')
-@require_login
-def machine_learning():
-    return render_template('machine_learning.html', user=session)
 
 
-@app.route('/mesin_analisis')
+@app.route('/ml')
 @require_login
-def mesin_analisis():
-    return render_template('mesin_analisis.html', user=session)
+def ml():
+    return render_template('ml.html', user=session)
 
 
 @app.route('/kontrol_alat')
@@ -669,8 +665,8 @@ def get_all_users():
 def control_device():
     """
     Endpoint terpadu untuk mengontrol motor_status dan solenoid_valve
-    Menerima: { "device_id": "motor_status" atau "solenoid_valve", "status": "ON" atau "OFF" }
-    Menulis ke: /BioCycle/sensor/[device_id]
+    Menerima: { "device_id": "motor_status", "solenoid_valve_main", atau "solenoid_valve_emergency", "status": "ON" atau "OFF" }
+    Menulis ke: /BioCycle/control/[device_id] dan /BioCycle/sensor/ (untuk backward compatibility)
     """
     try:
         data = request.get_json()
@@ -681,20 +677,12 @@ def control_device():
         if not device_id or not status:
             return jsonify({'success': False, 'message': 'Parameter device_id dan status diperlukan'}), 400
         
-        if device_id not in ['motor_status', 'solenoid_valve']:
-            return jsonify({'success': False, 'message': 'Device ID tidak valid. Harus motor_status atau solenoid_valve'}), 400
+        valid_devices = ['motor_status', 'solenoid_valve', 'solenoid_valve_main', 'solenoid_valve_emergency']
+        if device_id not in valid_devices:
+            return jsonify({'success': False, 'message': f'Device ID tidak valid. Harus salah satu dari: {", ".join(valid_devices)}'}), 400
         
         if status not in ['ON', 'OFF']:
             return jsonify({'success': False, 'message': 'Status tidak valid. Harus ON atau OFF'}), 400
-        
-        # Update data di Firebase Realtime Database pada path /BioCycle/sensor/
-        sensor_ref = db.reference('/BioCycle/sensor')
-        updates = {
-            device_id: status,
-            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        sensor_ref.update(updates)
         
         # Tandai sebagai kontrol manual di /BioCycle/control
         control_ref = db.reference(f'BioCycle/control/{device_id}')
@@ -703,6 +691,35 @@ def control_device():
             'manual': True,  # Tandai sebagai kontrol manual
             'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
+        
+        # Untuk backward compatibility, update juga di /BioCycle/sensor jika solenoid_valve
+        if device_id in ['solenoid_valve', 'solenoid_valve_main', 'solenoid_valve_emergency']:
+            # Update sensor untuk backward compatibility (jika masih digunakan)
+            sensor_ref = db.reference('/BioCycle/sensor')
+            # Untuk solenoid_valve_main dan solenoid_valve_emergency, kita bisa update field terpisah
+            if device_id == 'solenoid_valve_main':
+                sensor_ref.update({
+                    'solenoid_valve_main': status,
+                    'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+            elif device_id == 'solenoid_valve_emergency':
+                sensor_ref.update({
+                    'solenoid_valve_emergency': status,
+                    'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+            else:
+                # Backward compatibility untuk solenoid_valve
+                sensor_ref.update({
+                    'solenoid_valve': status,
+                    'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+        elif device_id == 'motor_status':
+            # Update motor status di sensor
+            sensor_ref = db.reference('/BioCycle/sensor')
+            sensor_ref.update({
+                'motor_status': status,
+                'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
         
         print(f"✅ {device_id} berhasil diubah menjadi {status} (MANUAL)")
         return jsonify({
@@ -797,16 +814,15 @@ def control_motor():
 def get_control_status():
     """
     Mengambil status kontrol dari Firebase
-    Membaca dari /BioCycle/sensor/ untuk motor_status dan solenoid_valve
+    Membaca dari /BioCycle/control/ dan /BioCycle/sensor/ untuk motor_status dan solenoid valves
     """
     try:
         # Baca dari path sensor
         sensor_ref = db.reference('/BioCycle/sensor')
         sensor_data = sensor_ref.get()
         
-        # Ambil status motor dan solenoid dari sensor
+        # Ambil status motor dari sensor
         motor_status = sensor_data.get('motor_status', 'OFF') if sensor_data else 'OFF'
-        solenoid_valve = sensor_data.get('solenoid_valve', 'OFF') if sensor_data else 'OFF'
         
         # Baca detail motor dari control jika ada
         control_motor_ref = db.reference('BioCycle/control/motor')
@@ -818,18 +834,30 @@ def get_control_status():
             'duration': motor_control_data.get('duration', 0) if motor_control_data else 0
         }
         
-        # Untuk backward compatibility, simulasikan solenoid A, B, C, D
-        # (dalam implementasi nyata, Anda mungkin perlu mapping yang berbeda)
-        solenoids = {
-            'solenoid_A': solenoid_valve,
-            'solenoid_B': solenoid_valve,
-            'solenoid_C': solenoid_valve,
-            'solenoid_D': solenoid_valve
-        }
+        # Baca status Gate Utama (solenoid_valve_main) dari control
+        control_main_ref = db.reference('BioCycle/control/solenoid_valve_main')
+        main_control_data = control_main_ref.get()
+        solenoid_main_status = main_control_data.get('status', 'OFF') if main_control_data else 'OFF'
+        
+        # Baca status Gate Darurat (solenoid_valve_emergency) dari control
+        control_emergency_ref = db.reference('BioCycle/control/solenoid_valve_emergency')
+        emergency_control_data = control_emergency_ref.get()
+        solenoid_emergency_status = emergency_control_data.get('status', 'OFF') if emergency_control_data else 'OFF'
+        
+        # Jika tidak ada di control, coba baca dari sensor
+        if solenoid_main_status == 'OFF' and sensor_data:
+            solenoid_main_status = sensor_data.get('solenoid_valve_main', 'OFF')
+        if solenoid_emergency_status == 'OFF' and sensor_data:
+            solenoid_emergency_status = sensor_data.get('solenoid_valve_emergency', 'OFF')
         
         return jsonify({
             'success': True,
-            'solenoids': solenoids,
+            'solenoid_main': {
+                'status': solenoid_main_status
+            },
+            'solenoid_emergency': {
+                'status': solenoid_emergency_status
+            },
             'motor': motor
         })
         
